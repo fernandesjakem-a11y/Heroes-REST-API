@@ -6,6 +6,7 @@ import hmac
 from functools import wraps
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
+from microsoft.opentelemetry import use_microsoft_opentelemetry
 
 # Create one Key Vault client for the application.
 credential = DefaultAzureCredential()
@@ -23,6 +24,14 @@ FIELDS = [
     "name", "aliases", "status", "culture",
     "sources", "historical_period", "description"
 ]
+
+use_microsoft_opentelemetry(
+    enable_azure_monitor=True,
+    logger_name="heroes-api"
+)
+
+telemetry_logger = logging.getLogger("heroes-api")
+telemetry_logger.setLevel(logging.INFO)
 
 # ------------------------------------------------------------
 # Helpers and handler
@@ -238,4 +247,21 @@ def count_heroes(req: func.HttpRequest):
 @app.route(route="heroes/validate", methods=["PATCH"])
 @handle_function()
 def validate_heroes(req: func.HttpRequest):
-    return response(repository.validate_heroes())
+
+    telemetry_logger.info(
+        "Batch validation started",
+        extra={
+            "microsoft.custom_event.name": "ValidationTriggered",
+            "entity": "Heroes",
+            "operation": "BatchValidation"
+        }
+    )
+
+    result = repository.validate_heroes()
+
+    logging.info(
+        "Batch validation completed. Updated %s heroes.",
+        result["updatedCount"]
+    )
+
+    return response(result)
