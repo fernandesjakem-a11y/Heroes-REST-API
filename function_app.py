@@ -73,6 +73,12 @@ def get_api_key():
     secret = secret_client.get_secret("HEROES-API-KEY")
     return secret.value
 
+def get_admin_api_key():
+    """Retrieve the administrator API key from Key Vault."""
+
+    secret = secret_client.get_secret("HEROES-ADMIN-API-KEY")
+    return secret.value
+
 # ------------------------------------------------------------
 # Centralized request handler and logging
 # ------------------------------------------------------------
@@ -80,7 +86,8 @@ def get_api_key():
 def handle_function(
     needs_json=False,
     needs_id=False,
-    needs_existing_hero=False
+    needs_existing_hero=False,
+    admin_only=False
 ):
 
     def decorator(handler):
@@ -130,6 +137,30 @@ def handle_function(
 
                 if not hmac.compare_digest(provided_key, key):
                     raise APIError("Unauthorized.", 401)
+
+                # --------------------------------------------
+                # Administrator authorization
+                # --------------------------------------------
+
+                if admin_only:
+                    admin_key = get_admin_api_key()
+                    provided_admin_key = (
+                        req.headers.get("X-Admin-API-Key") or "")
+
+                    if not admin_key:
+                        raise APIError(
+                            "Administrator authorization is not configured.",
+                            500
+                        )
+
+                    if not hmac.compare_digest(
+                        provided_admin_key,
+                        admin_key
+                    ):
+                        raise APIError(
+                            "Administrator authorization required.",
+                            403
+                        )
 
                 # --------------------------------------------
                 # JSON body validation
@@ -408,10 +439,20 @@ def delete_hero(req: func.HttpRequest):
 # ------------------------------------------------------------
 
 @app.route(route="heroes/purge", methods=["DELETE"])
-@handle_function()
+@handle_function(admin_only=True)
 def purge_heroes(req: func.HttpRequest):
 
     total = repository.purge_heroes()
+
+    telemetry_logger.info(
+        "Heroes purge completed.",
+        extra={
+            "microsoft.custom_event.name": "HeroesPurged",
+            "deleted_count": total,
+            "operation": "AdministrativePurge",
+            "authorization_method": "AdminAPIKey"
+        }
+    )
 
     return response({
         "message": "All heroes have been purged successfully.",
@@ -435,20 +476,28 @@ def count_heroes(req: func.HttpRequest):
 # ------------------------------------------------------------
 
 @app.route(route="heroes/validate", methods=["PATCH"])
-@handle_function()
+@handle_function(admin_only=True)
 def validate_heroes(req: func.HttpRequest):
 
-    # Emit a genuine Application Insights custom event.
     telemetry_logger.info(
         "Batch validation started.",
         extra={
             "microsoft.custom_event.name": "ValidationTriggered",
             "entity": "Heroes",
-            "operation": "BatchValidation",
-            "api_request_id": req.api_request_id
+            "operation": "BatchValidation"
         }
     )
 
     result = repository.validate_heroes()
+
+    telemetry_logger.info(
+        "Batch validation completed.",
+        extra={
+            "microsoft.custom_event.name": "ValidationCompleted",
+            "entity": "Heroes",
+            "operation": "BatchValidation",
+            "updated_count": result["updatedCount"]
+        }
+    )
 
     return response(result)

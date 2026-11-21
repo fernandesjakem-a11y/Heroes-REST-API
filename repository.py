@@ -41,9 +41,9 @@ def _get_or_create_source(cursor, title):
 # ------------------------------------------------------------
 
 def _add_aliases(cursor, hero_id, aliases):
-    """Insert aliases belonging to a hero."""
+    """Insert unique aliases belonging to a hero."""
 
-    for alias in aliases:
+    for alias in dict.fromkeys(aliases):
         cursor.execute(
             """
             INSERT INTO dbo.HeroAliases (hero_id, alias)
@@ -60,9 +60,9 @@ def _add_aliases(cursor, hero_id, aliases):
 # ------------------------------------------------------------
 
 def _add_sources(cursor, hero_id, sources):
-    """Associate a hero with its literary sources."""
+    """Associate a hero with unique sources."""
 
-    for source in sources:
+    for source in dict.fromkeys(sources):
         source_id = _get_or_create_source(cursor, source)
 
         cursor.execute(
